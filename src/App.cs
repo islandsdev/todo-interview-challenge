@@ -4,6 +4,7 @@ public class TodoItem
     public int Id { get; set; }
     public string Title { get; set; }
     public bool IsCompleted { get; set; }
+    public bool IsImportant { get; set; }
     public DateTime CreatedDate { get; set; }
 }
 
@@ -11,9 +12,11 @@ public class TodoItem
 public interface ITodoService
 {
     Task<IEnumerable<TodoItem>> GetAllTodosAsync();
+    Task<IEnumerable<TodoItem>> GetImportantTodosAsync();
     Task<TodoItem> GetTodoByIdAsync(int id);
     Task<TodoItem> CreateTodoAsync(TodoItem todoItem);
     Task<bool> UpdateTodoAsync(TodoItem todoItem);
+    Task<bool> MarkAsImportantAsync(int id);
     Task<bool> DeleteTodoAsync(int id);
 }
 
@@ -35,9 +38,16 @@ public class TodoService : ITodoService
         return await _repository.GetAllAsync();
     }
 
+    public async Task<IEnumerable<TodoItem>> GetImportantTodosAsync()
+    {
+        _logger.LogInformation("Getting important todos");
+        var todos = await _repository.GetAllAsync();
+        return todos.Where(t => t.IsImportant == true);
+    }
+
     public async Task<TodoItem> GetTodoByIdAsync(int id)
     {
-        _logger.LogInformation($"Getting todo with id {id}");
+        _logger.LogInformation("Getting todo with id " + id);
         return await _repository.GetByIdAsync(id);
     }
 
@@ -53,6 +63,15 @@ public class TodoService : ITodoService
     {
         _logger.LogInformation($"Updating todo with id {todoItem.Id}");
         return await _repository.UpdateAsync(todoItem);
+    }
+
+    public async Task<bool> MarkAsImportantAsync(int id)
+    {
+        var todo = await _repository.GetByIdAsync(id);
+        if (todo == null)
+            return false;
+        todo.IsImportant = true;
+        return await _repository.UpdateAsync(todo);
     }
 
     public async Task<bool> DeleteTodoAsync(int id)
@@ -81,6 +100,13 @@ public class TodoController : ControllerBase
         return Ok(todos);
     }
 
+    [HttpGet("important")]
+    public async Task<ActionResult<IEnumerable<TodoItem>>> GetImportantTodos()
+    {
+        var todos = await _todoService.GetImportantTodosAsync();
+        return Ok(todos);
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<TodoItem>> GetTodoById(int id)
     {
@@ -93,6 +119,9 @@ public class TodoController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<TodoItem>> CreateTodo(TodoItem todoItem)
     {
+        if (string.IsNullOrWhiteSpace(todoItem.Title))
+            todoItem.Title = "New Task";
+
         var createdTodo = await _todoService.CreateTodoAsync(todoItem);
         return CreatedAtAction(nameof(GetTodoById), new { id = createdTodo.Id }, createdTodo);
     }
@@ -102,10 +131,20 @@ public class TodoController : ControllerBase
     {
         if (id != todoItem.Id)
             return BadRequest();
+
         var success = await _todoService.UpdateTodoAsync(todoItem);
         if (!success)
             return NotFound();
         return NoContent();
+    }
+
+    [HttpPatch("{id}/important")]
+    public async Task<IActionResult> MarkAsImportant(int id)
+    {
+        var result = await _todoService.MarkAsImportantAsync(id);
+        if (!result)
+            return NotFound();
+        return Ok();
     }
 
     [HttpDelete("{id}")]
